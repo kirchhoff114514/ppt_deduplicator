@@ -110,11 +110,12 @@ def find_unique_slides(image_paths: list[str]) -> list[str]:
             # else: 距离小于等于阈值，说明是重复，跳过
 
         # 打印进度（每处理 50 张图片或结束时打印）
-        if (i + 1) % 50 == 0 or (i + 1) == total_images:
-            sys.stdout.write(f"\r   进度: {i + 1} / {total_images} 张已处理. 当前已保留 {len(unique_slides)} 张唯一幻灯片.")
-            sys.stdout.flush()
-            
-    sys.stdout.write('\n') # 确保进度条后换行
+        if hasattr(sys.stdout, 'write'):
+            if (i + 1) % 50 == 0 or (i + 1) == total_images:
+                sys.stdout.write(f"\r   进度: {i + 1} / {total_images} 张已处理. 当前已保留 {len(unique_slides)} 张唯一幻灯片.")
+                sys.stdout.flush()
+    if hasattr(sys.stdout, 'write'):        
+        sys.stdout.write('\n') # 确保进度条后换行
     return unique_slides
 
 
