@@ -2,7 +2,7 @@ import os
 import argparse
 import re 
 import sys
-# 确保您已安装 imagehash 和 Pillow：pip install imagehash Pillow
+from typing import Optional 
 from PIL import Image
 import imagehash 
 
@@ -152,13 +152,52 @@ def create_pdf_from_images(image_paths: list[str], output_path: str):
         print("请检查图片文件是否完整或 PIL 库是否能处理这些图片。")
         raise # 抛出异常，让用户知道失败
 
+def extract_input_features(input_dir: str) -> str:
+    """
+    根据输入的路径，提取具有辨识度的特征，用于构造输出文件名。
+    """
+    # 规范化路径，移除末尾斜杠，并按操作系统分隔符分割
+    parts = input_dir.rstrip(os.sep).split(os.sep)
+    
+    # 假设：倒数第一级通常是通用的 'ppt_images' 或类似物，可忽略
+    # 倒数第二级和第三级最可能是 '日期/节次' 和 '课程名'
+    
+    feature_parts = []
+    
+    # 尝试提取倒数第二级（如 '2025-09-18第3-5节'）
+    if len(parts) >= 2:
+        # 如果倒数第一级是通用名（如 ppt_images, images），则取倒数第二级
+        if parts[-1].lower() in ['ppt_images', 'images', 'screenshots']:
+             feature_parts.append(parts[-2])
+             
+             # 尝试提取倒数第三级（如 '设计与制造Ⅲ'）
+             if len(parts) >= 3:
+                 feature_parts.insert(0, parts[-3])
+        else:
+             # 如果倒数第一级不是通用名，则认为它包含重要信息
+             feature_parts.append(parts[-1])
+             if len(parts) >= 2:
+                 feature_parts.insert(0, parts[-2])
+    elif len(parts) == 1:
+        # 只有一级路径，直接使用它
+        feature_parts.append(parts[-1])
+
+    if not feature_parts:
+        return "Unknown" # 提取失败的备用名称
+        
+    # 将提取出的部分用下划线连接，并清理文件名中可能不允许的字符
+    safe_name = "_".join(feature_parts)
+    safe_name = re.sub(r'[\\/:*?"<>|]', '_', safe_name) # 替换非法字符
+    
+    return safe_name
+
 
 def main():
     """
-    主执行函数：使用 argparse 接收命令行参数。
+    主执行函数：使用 argparse 接收命令行参数并处理文件路径。
     """
     parser = argparse.ArgumentParser(
-        description="【PPT去重器】根据感知哈希（pHash）自动识别并移除智云课堂导出的重复幻灯片，生成干净的PDF。",
+        description="【PPT去重器】根据感知哈希（pHash）自动识别并移除智云课堂导出的重复幻灯片。",
         formatter_class=argparse.RawTextHelpFormatter
     )
     
@@ -166,32 +205,48 @@ def main():
         '-i', '--input_dir', 
         type=str, 
         required=True, 
-        help="【必需】存放原始 PPT 截图（例如 1.jpg, 2.jpg...）的文件夹路径。"
+        help="【必需】存放原始 PPT 截图的文件夹路径。"
     )
     
+    # 修改参数：现在接受输出目录
     parser.add_argument(
-        '-o', '--output_file', 
+        '-d', '--output_dir', 
         type=str, 
-        default="cleaned_lecture.pdf",
-        help="【可选】最终生成的 PDF 文件名（含路径）。\n默认值: cleaned_lecture.pdf"
+        default=".", # 默认输出到当前运行目录
+        help="【可选】最终 PDF 文件的存放目录。\n默认值: 当前运行目录 (./)"
     )
     
     args = parser.parse_args()
     
-    input_dir = args.input_dir
-    output_pdf_path = args.output_file
+    input_dir = os.path.abspath(args.input_dir)
+    output_dir = os.path.abspath(args.output_dir)
 
     if not os.path.isdir(input_dir):
         print(f"错误：输入的文件夹路径不存在或不是一个目录: {input_dir}")
         sys.exit(1)
+        
+    # 确保输出目录存在，如果不存在则创建
+    os.makedirs(output_dir, exist_ok=True)
+
+
+    # --- 新增逻辑：文件名生成 ---
+    base_filename = extract_input_features(input_dir)
+    output_pdf_filename = f"{base_filename}_Cleaned.pdf"
+    output_pdf_path = os.path.join(output_dir, output_pdf_filename)
+    # --------------------------
 
     print("=========================================")
-    print("      🎓 PPT去重与PDF生成工具 (v1.0) 🎓")
+    print("      🎓 PPT去重与PDF生成工具 (v1.1) 🎓")
     print("=========================================")
     print(f"   输入目录: {input_dir}")
-    print(f"   输出文件: {output_pdf_path}")
+    print(f"   输出目录: {output_dir}")
+    print(f"   生成文件名: {output_pdf_filename}")
     print("-" * 41)
     
+    # 1. 获取文件并排序
+    all_image_paths = get_image_files(input_dir)
+    # ... (其余逻辑保持不变) ...
+
     # 1. 获取文件并排序
     all_image_paths = get_image_files(input_dir)
     print(f"1. 成功获取 {len(all_image_paths)} 张原始图片文件 (.jpg)，已按自然顺序排序。")
@@ -208,7 +263,7 @@ def main():
     # 3. 生成 PDF
     print(f"3. 正在生成 PDF 文件...")
     create_pdf_from_images(unique_paths, output_pdf_path)
-    print("4. **操作成功！**")
+    print(f"4. **操作成功！** 文件保存在: {output_pdf_path}")
 
 
 if __name__ == "__main__":
