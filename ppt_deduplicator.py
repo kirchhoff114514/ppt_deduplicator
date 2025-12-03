@@ -158,48 +158,80 @@ def create_pdf_from_images(image_paths: list[str], output_path: str):
 
 def extract_input_features(input_dir: str) -> str:
     """
-    根据输入的路径，提取具有辨识度的特征，用于构造输出文件名。
+    根据输入的路径，提取倒数第三级和倒数第二级目录作为核心特征，
+    以实现文件名简短且具有辨识度。
     """
-    # 规范化路径，移除末尾斜杠，并按操作系统分隔符分割
-    parts = input_dir.rstrip(os.sep).split(os.sep)
+    # 规范化路径并移除末尾斜杠
+    normalized_path = os.path.normpath(input_dir)
+    # 按操作系统分隔符分割，并过滤掉空字符串（防止双斜杠等问题）
+    parts = [part for part in normalized_path.split(os.sep) if part]
     
-    # 假设：倒数第一级通常是通用的 'ppt_images' 或类似物，可忽略
-    # 倒数第二级和第三级最可能是 '日期/节次' 和 '课程名'
+    # 排除驱动器号（如 'C:'），只保留目录名称
+    if parts and parts[0].endswith(':'):
+        parts = parts[1:] 
+
+    # ----------------------------------------------------
+    # 核心提取逻辑：专注于路径的尾部
+    # ----------------------------------------------------
     
     feature_parts = []
     
-    # 尝试提取倒数第二级（如 '2025-09-18第3-5节'）
-    if len(parts) >= 2:
-        # 如果倒数第一级是通用名（如 ppt_images, images），则取倒数第二级
-        if parts[-1].lower() in ['ppt_images', 'images', 'screenshots']:
-             feature_parts.append(parts[-2])
-             
-             # 尝试提取倒数第三级（如 '设计与制造Ⅲ'）
-             if len(parts) >= 3:
-                 feature_parts.insert(0, parts[-3])
-        else:
-             # 如果倒数第一级不是通用名，则认为它包含重要信息
-             feature_parts.append(parts[-1])
-             if len(parts) >= 2:
-                 feature_parts.insert(0, parts[-2])
-    elif len(parts) == 1:
-        # 只有一级路径，直接使用它
-        feature_parts.append(parts[-1])
+    # 倒数第一级 (Last part, e.g., 'ppt_images')
+    last_part = parts[-1] if parts else ""
+    
+    # 倒数第二级 (Second-to-last part, e.g., '2025-09-25第3-5节')
+    second_last_part = parts[-2] if len(parts) >= 2 else ""
 
-    if not feature_parts:
-        return "Unknown" # 提取失败的备用名称
+    # 倒数第三级 (Third-to-last part, e.g., '设计与制造Ⅲ')
+    third_last_part = parts[-3] if len(parts) >= 3 else ""
+
+    # 1. 识别并忽略通用的末尾目录 (如 'ppt_images')
+    generic_names = ['ppt_images', 'images', 'screenshots', 'temp', 'files']
+    
+    if last_part.lower() in generic_names:
+        # 如果末尾是通用名，我们用倒数第二级和倒数第三级
         
+        # 提取倒数第三级（如 课程名）
+        if third_last_part:
+            feature_parts.append(third_last_part)
+            
+        # 提取倒数第二级（如 日期/节次）
+        if second_last_part:
+            # 确保不重复添加
+            if not feature_parts or feature_parts[-1] != second_last_part:
+                feature_parts.append(second_last_part)
+                
+    else:
+        # 如果末尾不是通用名，认为末尾两级都重要
+        
+        # 提取倒数第二级
+        if second_last_part:
+            feature_parts.append(second_last_part)
+            
+        # 提取倒数第一级
+        if last_part:
+            # 确保不重复添加
+            if not feature_parts or feature_parts[-1] != last_part:
+                feature_parts.append(last_part)
+                
+    # ----------------------------------------------------
+    
+    if not feature_parts:
+        # 如果路径太短，至少保留最后一个目录名
+        return parts[-1] if parts else "Unknown"
+
     # 将提取出的部分用下划线连接，并清理文件名中可能不允许的字符
     safe_name = "_".join(feature_parts)
     safe_name = re.sub(r'[\\/:*?"<>|]', '_', safe_name) # 替换非法字符
     
-    return safe_name
+    # 移除首尾可能出现的下划线，防止路径分割错误导致
+    return safe_name.strip('_')
 
 
 class PPTDeduplicatorApp:
     def __init__(self, master):
         self.master = master
-        master.title("🎓 智云课堂 PPT 去重工具 (v2.0)")
+        master.title("🎓 智云课堂 PPT 去重工具 (v0.0)")
         
         # 内部变量
         self.input_dir = ""
