@@ -1,10 +1,14 @@
 import os
-import argparse
-import re 
 import sys
+import re
+# 导入 Tkinter 相关的库
+from tkinter import Tk, Label, Entry, Button, filedialog, messagebox, W, E, S, N
+from tkinter.ttk import Separator # Separator 需要从 ttk 导入
 from typing import Optional 
 from PIL import Image
 import imagehash 
+
+# (可选：如果您的Python环境没有tkinter.ttk，需要安装ttkthemes或移除Separator)
 
 # --- 配置参数 ---
 # 汉明距离阈值：用于判断两张图片是否重复。
@@ -192,79 +196,129 @@ def extract_input_features(input_dir: str) -> str:
     return safe_name
 
 
-def main():
-    """
-    主执行函数：使用 argparse 接收命令行参数并处理文件路径。
-    """
-    parser = argparse.ArgumentParser(
-        description="【PPT去重器】根据感知哈希（pHash）自动识别并移除智云课堂导出的重复幻灯片。",
-        formatter_class=argparse.RawTextHelpFormatter
-    )
-    
-    parser.add_argument(
-        '-i', '--input_dir', 
-        type=str, 
-        required=True, 
-        help="【必需】存放原始 PPT 截图的文件夹路径。"
-    )
-    
-    # 修改参数：现在接受输出目录
-    parser.add_argument(
-        '-d', '--output_dir', 
-        type=str, 
-        default=".", # 默认输出到当前运行目录
-        help="【可选】最终 PDF 文件的存放目录。\n默认值: 当前运行目录 (./)"
-    )
-    
-    args = parser.parse_args()
-    
-    input_dir = os.path.abspath(args.input_dir)
-    output_dir = os.path.abspath(args.output_dir)
-
-    if not os.path.isdir(input_dir):
-        print(f"错误：输入的文件夹路径不存在或不是一个目录: {input_dir}")
-        sys.exit(1)
+class PPTDeduplicatorApp:
+    def __init__(self, master):
+        self.master = master
+        master.title("🎓 智云课堂 PPT 去重工具 (v2.0)")
         
-    # 确保输出目录存在，如果不存在则创建
-    os.makedirs(output_dir, exist_ok=True)
+        # 内部变量
+        self.input_dir = ""
+        self.output_dir = ""
 
+        # --- 布局配置 ---
+        master.grid_rowconfigure(0, weight=1)
+        master.grid_columnconfigure(0, weight=1)
+        
+        # --- 1. 输入路径设置 ---
+        Label(master, text="输入文件夹 (原始截图):").grid(row=0, column=0, sticky=W, padx=10, pady=(10, 2))
+        
+        self.input_entry = Entry(master, width=60)
+        self.input_entry.grid(row=1, column=0, sticky=W+E, padx=10, pady=(0, 5))
+        
+        input_button = Button(master, text="浏览...", command=self.browse_input)
+        input_button.grid(row=1, column=1, sticky=W, padx=5, pady=(0, 5))
 
-    # --- 新增逻辑：文件名生成 ---
-    base_filename = extract_input_features(input_dir)
-    output_pdf_filename = f"{base_filename}_Cleaned.pdf"
-    output_pdf_path = os.path.join(output_dir, output_pdf_filename)
-    # --------------------------
+        # --- 2. 分隔线 ---
+        Separator(master, orient='horizontal').grid(row=2, column=0, columnspan=2, sticky=W+E, padx=10, pady=5)
 
-    print("=========================================")
-    print("      🎓 PPT去重与PDF生成工具 (v1.1) 🎓")
-    print("=========================================")
-    print(f"   输入目录: {input_dir}")
-    print(f"   输出目录: {output_dir}")
-    print(f"   生成文件名: {output_pdf_filename}")
-    print("-" * 41)
-    
-    # 1. 获取文件并排序
-    all_image_paths = get_image_files(input_dir)
-    # ... (其余逻辑保持不变) ...
+        # --- 3. 输出路径设置 ---
+        Label(master, text="输出目录 (PDF存放地):").grid(row=3, column=0, sticky=W, padx=10, pady=(5, 2))
+        
+        self.output_entry = Entry(master, width=60)
+        self.output_entry.grid(row=4, column=0, sticky=W+E, padx=10, pady=(0, 10))
+        
+        output_button = Button(master, text="浏览...", command=self.browse_output)
+        output_button.grid(row=4, column=1, sticky=W, padx=5, pady=(0, 10))
+        
+        # --- 4. 运行按钮 ---
+        run_button = Button(master, text="✨ 生成 PDF (开始去重) ✨", command=self.run_deduplication, fg="white", bg="#209865")
+        run_button.grid(row=5, column=0, columnspan=2, sticky=W+E, padx=10, pady=10)
 
-    # 1. 获取文件并排序
-    all_image_paths = get_image_files(input_dir)
-    print(f"1. 成功获取 {len(all_image_paths)} 张原始图片文件 (.jpg)，已按自然顺序排序。")
-    
-    if not all_image_paths:
-        print("未找到任何符合要求的 .jpg 文件，程序退出。")
-        return
+        # --- 5. 状态/日志区域 ---
+        self.status_label = Label(master, text="状态: 等待操作...")
+        self.status_label.grid(row=6, column=0, columnspan=2, sticky=W, padx=10, pady=(5, 10))
+        
+        
+    def browse_input(self):
+        """打开对话框，选择输入文件夹"""
+        folder_selected = filedialog.askdirectory(title="选择包含原始 PPT 截图的文件夹")
+        if folder_selected:
+            self.input_dir = folder_selected
+            self.input_entry.delete(0, 'end')
+            self.input_entry.insert(0, self.input_dir)
+            self.status_label.config(text=f"状态: 输入路径已设置。")
+            
+    def browse_output(self):
+        """打开对话框，选择输出目录"""
+        folder_selected = filedialog.askdirectory(title="选择生成 PDF 文件存放的目录")
+        if folder_selected:
+            self.output_dir = folder_selected
+            self.output_entry.delete(0, 'end')
+            self.output_entry.insert(0, self.output_dir)
+            self.status_label.config(text=f"状态: 输出路径已设置。")
 
-    # 2. 筛选
-    print("2. 正在进行重复幻灯片筛选...")
-    unique_paths = find_unique_slides(all_image_paths)
-    print(f"   筛选完成。最终确定 {len(unique_paths)} 张非重复幻灯片。")
+    def run_deduplication(self):
+        """点击“生成”按钮时执行的核心逻辑"""
+        input_dir = self.input_entry.get()
+        output_dir = self.output_entry.get()
 
-    # 3. 生成 PDF
-    print(f"3. 正在生成 PDF 文件...")
-    create_pdf_from_images(unique_paths, output_pdf_path)
-    print(f"4. **操作成功！** 文件保存在: {output_pdf_path}")
+        if not os.path.isdir(input_dir) or not os.path.isdir(output_dir):
+            messagebox.showerror("错误", "请输入有效的输入文件夹和输出目录。")
+            return
+
+        try:
+            # 确保输出目录存在，如果不存在则创建
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # --- 1. 文件名生成 ---
+            self.status_label.config(text="状态: 正在生成文件名...")
+            self.master.update()
+            
+            base_filename = extract_input_features(input_dir)
+            output_pdf_filename = f"{base_filename}_Cleaned.pdf"
+            output_pdf_path = os.path.join(output_dir, output_pdf_filename)
+
+            # print(f"输入: {input_dir}")
+            # print(f"输出文件: {output_pdf_path}")
+            
+            # --- 2. 获取文件并排序 ---
+            self.status_label.config(text="状态: 1/3 正在获取并排序图片...")
+            self.master.update()
+            
+            all_image_paths = get_image_files(input_dir)
+            if not all_image_paths:
+                messagebox.showinfo("完成", "未找到任何图片文件，操作取消。")
+                return
+
+            # --- 3. 筛选去重 ---
+            self.status_label.config(text=f"状态: 2/3 正在处理 {len(all_image_paths)} 张图片，开始去重...")
+            self.master.update()
+            
+            unique_paths = find_unique_slides(all_image_paths)
+
+            # --- 4. 生成 PDF ---
+            self.status_label.config(text=f"状态: 3/3 正在生成 PDF ({len(unique_paths)} 页)...")
+            self.master.update()
+            
+            create_pdf_from_images(unique_paths, output_pdf_path)
+
+            # --- 5. 成功提示 ---
+            self.status_label.config(text="状态: 🎉 成功！PDF 已生成。", fg="green")
+            messagebox.showinfo("成功", f"PPT 去重完成！\n文件已保存至: {output_pdf_path}")
+
+        except Exception as e:
+            self.status_label.config(text=f"状态: ❌ 运行失败。", fg="red")
+            # 使用更友好的错误提示
+            messagebox.showerror("运行错误", f"处理过程中发生错误: {e}\n请检查权限或文件是否损坏。")
+            # 同时在控制台打印详细错误
+            import traceback
+            traceback.print_exc(file=sys.stdout)
 
 
 if __name__ == "__main__":
-    main()
+    # --- 启动 Tkinter GUI ---
+    root = Tk()
+    app = PPTDeduplicatorApp(root)
+    # 保持窗口大小可调整
+    root.resizable(True, False) 
+    root.mainloop()
