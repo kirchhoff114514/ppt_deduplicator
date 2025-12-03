@@ -232,7 +232,7 @@ def extract_input_features(input_dir: str) -> str:
 class PPTDeduplicatorApp:
     def __init__(self, master):
         self.master = master
-        master.title("🎓 智云课堂 PPT 去重工具 (v0.0)")
+        master.title("🎓 智云课堂 PPT 去重工具 (v1.0.0)")
         
         # 内部变量
         self.input_dir = ""
